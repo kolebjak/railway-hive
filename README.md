@@ -4,9 +4,8 @@ Self-hosted [GraphQL Hive](https://the-guild.dev/graphql/hive) Console — schem
 registry, schema checks and field-level usage analytics — as one Railway template,
 pinned to **hive@14.1.0**. One click, zero required inputs.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/TEMPLATE_CODE)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/lDR_SU)
 
-> Replace `TEMPLATE_CODE` once the template is published. See [PUBLISHING.md](PUBLISHING.md).
 
 ## What you get
 

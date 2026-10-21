@@ -330,7 +330,7 @@ Now go back to `server` and `workflows` and confirm `WEB_APP_URL` resolves to `a
 1. **Publish** the template. Deploy it once into a scratch project and check:
    `migrations` ends as completed, `server` `/_health` is 200, the console loads,
    sign-up works, and `usage` `/_health` is 200.
-2. Paste the template code into the deploy button in `README.md`.
+2. Deploy button in `README.md` points at `https://railway.com/deploy/lDR_SU` (template `lDR_SU`, composer id `157b289d-c13d-437b-99c2-484c84f603d7`).
 
 ## Start order on a fresh deploy
 
