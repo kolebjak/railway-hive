@@ -28,6 +28,19 @@ composer** as listed here; that is what the template records.
 references services already added). Restart policy: **Always** everywhere except
 `migrations` (**Never**). Public networking: only `app`, `server`, `usage`.
 
+Service icons (click the cube next to the service name, type a value, press
+Enter; the composer accepts a [devicons](https://devicons.railway.app) slug or
+any image URL):
+
+| Service | Icon |
+| --- | --- |
+| `db` | `postgres` |
+| `clickhouse` | `clickhouse` |
+| `redis` | `redis` |
+| `broker` | `https://cdn.simpleicons.org/apachekafka/white` |
+| `s3` | `aws` |
+| all Hive services | `https://raw.githubusercontent.com/graphql-hive/console/main/packages/web/app/public/just-logo.svg` |
+
 Secret shorthands used below:
 
 | Shorthand | Composer value | Equivalent |
