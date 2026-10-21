@@ -1,0 +1,300 @@
+# Local end-to-end check of the template: same service names, same images, same
+# variables as PUBLISHING.md, wired by compose DNS instead of Railway references.
+# The network is dual-stack so Railway's IPv6-only private network is exercised.
+# Upgrade: bump HIVE_TAG in .env.example and the tags in services/*/Dockerfile together.
+name: railway-hive
+
+networks:
+  stack:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd00:7a1e:1::/64
+
+x-hive-health: &hive-health
+  test: ['CMD', 'node', '-e', "fetch('http://localhost:'+process.env.PORT+'/_health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+  interval: 5s
+  timeout: 5s
+  retries: 12
+  start_period: 10s
+
+services:
+  db:
+    image: postgres:16.4-alpine
+    networks: [stack]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Subdirectory: a Railway volume root holds lost+found, which initdb rejects.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}']
+      interval: 5s
+      timeout: 5s
+      retries: 6
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3.12.3-alpine
+    networks: [stack]
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:8123/ping']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - clickhouse:/var/lib/clickhouse
+
+  broker:
+    build: services/broker
+    hostname: broker
+    networks: [stack]
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9644/public_metrics']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    volumes:
+      - broker:/var/lib/redpanda/data
+
+  redis:
+    build: services/redis
+    networks: [stack]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DISABLE_COMMANDS: FLUSHDB,FLUSHALL
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 10s
+      retries: 6
+      start_period: 5s
+    volumes:
+      - redis:/bitnami/redis/data
+
+  s3:
+    build: services/s3
+    networks: [stack]
+    environment:
+      ROOT_ACCESS_KEY: ${S3_ACCESS_KEY}
+      ROOT_SECRET_KEY: ${S3_SECRET_KEY}
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - s3:/srv
+
+  # One-shot: runs Postgres + ClickHouse migrations, exits 0.
+  migrations:
+    image: ghcr.io/graphql-hive/storage:${HIVE_TAG:-14.1.0}
+    networks: [stack]
+    depends_on:
+      db: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      MIGRATOR: up
+      CLICKHOUSE_MIGRATOR: up
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CLICKHOUSE_PROTOCOL: http
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_TTL_TABLES: ${CLICKHOUSE_TTL_TABLES:-}
+      CLICKHOUSE_TTL_DAILY_MV_TABLES: ${CLICKHOUSE_TTL_DAILY_MV_TABLES:-}
+      CLICKHOUSE_TTL_HOURLY_MV_TABLES: ${CLICKHOUSE_TTL_HOURLY_MV_TABLES:-}
+      CLICKHOUSE_TTL_MINUTELY_MV_TABLES: ${CLICKHOUSE_TTL_MINUTELY_MV_TABLES:-}
+      TS_NODE_TRANSPILE_ONLY: 'true'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  server:
+    build: services/server
+    networks: [stack]
+    ports:
+      - '${SERVER_HOST_PORT:-8082}:3001'
+    depends_on:
+      migrations: { condition: service_completed_successfully }
+      s3: { condition: service_healthy }
+      schema: { condition: service_healthy }
+      policy: { condition: service_healthy }
+    healthcheck: *hive-health
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CLICKHOUSE_PROTOCOL: http
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SCHEMA_ENDPOINT: http://schema:3002
+      SCHEMA_POLICY_ENDPOINT: http://policy:3012
+      S3_ENDPOINT: http://s3:9000
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET_NAME: artifacts
+      S3_AUDIT_LOG_ENDPOINT: http://s3:9000
+      S3_AUDIT_LOG_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      S3_AUDIT_LOG_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      S3_AUDIT_LOG_BUCKET_NAME: audit-logs
+      ENCRYPTION_SECRET: ${HIVE_ENCRYPTION_SECRET}
+      CDN_AUTH_PRIVATE_KEY: ${CDN_AUTH_PRIVATE_KEY}
+      CDN_API: '1'
+      CDN_API_BASE_URL: ${HIVE_SERVER_URL}
+      GRAPHQL_PUBLIC_ORIGIN: ${HIVE_SERVER_URL}
+      WEB_APP_URL: ${HIVE_APP_URL}
+      AUTH_ORGANIZATION_OIDC: '1'
+      AUTH_REQUIRE_EMAIL_VERIFICATION: '0'
+      SUPERTOKENS_REFRESH_TOKEN_KEY: ${SUPERTOKENS_REFRESH_TOKEN_KEY}
+      SUPERTOKENS_ACCESS_TOKEN_KEY: ${SUPERTOKENS_ACCESS_TOKEN_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - server-keys:/keys
+
+  schema:
+    image: ghcr.io/graphql-hive/schema:${HIVE_TAG:-14.1.0}
+    networks: [stack]
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck: *hive-health
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      ENCRYPTION_SECRET: ${HIVE_ENCRYPTION_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  policy:
+    image: ghcr.io/graphql-hive/policy:${HIVE_TAG:-14.1.0}
+    networks: [stack]
+    healthcheck: *hive-health
+    environment:
+      NODE_ENV: production
+      PORT: 3012
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  workflows:
+    image: ghcr.io/graphql-hive/workflows:${HIVE_TAG:-14.1.0}
+    networks: [stack]
+    depends_on:
+      migrations: { condition: service_completed_successfully }
+    healthcheck: *hive-health
+    environment:
+      NODE_ENV: production
+      PORT: 3014
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SCHEMA_ENDPOINT: http://schema:3002
+      WEB_APP_URL: ${HIVE_APP_URL}
+      ENCRYPTION_SECRET: ${HIVE_ENCRYPTION_SECRET}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-mock}
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@example.com}
+      LOG_JSON: '1'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  usage:
+    image: ghcr.io/graphql-hive/usage:${HIVE_TAG:-14.1.0}
+    networks: [stack]
+    ports:
+      - '${USAGE_HOST_PORT:-8081}:3006'
+    depends_on:
+      broker: { condition: service_healthy }
+      migrations: { condition: service_completed_successfully }
+    healthcheck: *hive-health
+    environment:
+      NODE_ENV: production
+      PORT: 3006
+      KAFKA_CONNECTION_MODE: docker
+      KAFKA_BROKER: broker:29092
+      KAFKA_TOPIC: usage_reports_v2
+      KAFKA_BUFFER_SIZE: 350
+      KAFKA_BUFFER_INTERVAL: 1000
+      KAFKA_BUFFER_DYNAMIC: '1'
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  usage-ingestor:
+    image: ghcr.io/graphql-hive/usage-ingestor:${HIVE_TAG:-14.1.0}
+    networks: [stack]
+    depends_on:
+      broker: { condition: service_healthy }
+      migrations: { condition: service_completed_successfully }
+    healthcheck: *hive-health
+    environment:
+      NODE_ENV: production
+      PORT: 3007
+      KAFKA_CONNECTION_MODE: docker
+      KAFKA_BROKER: broker:29092
+      KAFKA_TOPIC: usage_reports_v2
+      KAFKA_CONSUMER_GROUP: usage-ingestor-v2
+      KAFKA_CONCURRENCY: '1'
+      CLICKHOUSE_PROTOCOL: http
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  app:
+    image: ghcr.io/graphql-hive/app:${HIVE_TAG:-14.1.0}
+    networks: [stack]
+    ports:
+      - '${APP_HOST_PORT:-8080}:3000'
+    healthcheck: *hive-health
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_BASE_URL: ${HIVE_APP_URL}
+      GRAPHQL_PUBLIC_ENDPOINT: ${HIVE_SERVER_URL}/graphql
+      GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT: ${HIVE_SERVER_URL}/graphql
+      GRAPHQL_PUBLIC_ORIGIN: ${HIVE_SERVER_URL}
+      AUTH_REQUIRE_EMAIL_VERIFICATION: '0'
+      AUTH_ORGANIZATION_OIDC: '1'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+volumes:
+  db:
+  clickhouse:
+  broker:
+  redis:
+  s3:
+  server-keys:
