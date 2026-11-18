@@ -110,6 +110,19 @@ instance owner. So: deploy, sign up, then set `DISABLE_SIGNUP=1` on `edge`
 To onboard someone by email, set `DISABLE_SIGNUP=0`, let them register, set it
 back. Invitations to an organization are a separate step inside Hive.
 
+Sign-up and sign-in are plain POSTs, the same ones the console sends, so the first
+account can be created from a terminal. Password rule: upper and lower case, a
+digit and a special character.
+
+```bash
+curl -sS https://<edge domain>/auth-api/signup -H 'Content-Type: application/json' \
+  -d '{"formFields":[{"id":"email","value":"you@example.com"},{"id":"password","value":"<password>"},{"id":"firstName","value":"Jane"},{"id":"lastName","value":"Doe"}]}'
+```
+
+`{"status":"OK",…}` on success; `FIELD_ERROR` names the field. `/auth-api/signin`
+takes the same body with email and password only and answers with the session
+cookies.
+
 ## Custom domains (optional)
 
 The generated `edge-….up.railway.app` domain is enough for login. To use your own
@@ -125,6 +138,31 @@ follows a custom domain, so do not rely on the template's reference values.
 | `workflows` | `WEB_APP_URL` | `https://hive.example.com` |
 | `app` | `APP_BASE_URL`, `GRAPHQL_PUBLIC_ORIGIN` | `https://hive.example.com` |
 | `app` | `GRAPHQL_PUBLIC_ENDPOINT`, `GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT` | `https://hive.example.com/graphql` |
+
+Railway issues a fresh `CNAME` target per service, so a domain moved from another
+service to `edge` needs its CNAME record changed; the `_railway-verify` TXT stays.
+
+## Upgrading a deployment made before `edge`
+
+Deployments from the first template version have public domains on `app`, `server`
+and `usage` and no `edge`. Railway cannot push this change (template updates only
+cover GitHub-repo services), so do it in the project, with no data loss:
+
+1. **Add service → Docker Image** `ghcr.io/kolebjak/railway-hive-edge:14.1.0`, name
+   it `edge`, variables and settings as in [PUBLISHING.md](PUBLISHING.md) step 14.
+2. `app`, `server`, `usage` → Settings → Networking: delete every domain. Custom
+   domains vanish at once; the rest is staged.
+3. Set the eight variables in the table above to the host `edge` will use (the
+   generated `edge-….up.railway.app` or your custom domain), and add
+   `SUPERTOKENS_RATE_LIMIT_IP_HEADER_NAME=X-Real-IP` on `server`.
+4. **Deploy** the staged changes: `edge` starts, `app`, `server`, `workflows`
+   redeploy.
+5. Add the custom domain to `edge` (the button appears once the service exists),
+   update the CNAME, sign in, set `DISABLE_SIGNUP=1`.
+
+Everyone is logged out once; registry and CDN tokens stay valid. Gateways and the
+CLI move to `https://<edge domain>/graphql`, `/artifacts/v1/<target-id>` and
+`/usage`.
 
 ### Using it from a project
 
