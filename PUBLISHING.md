@@ -410,24 +410,9 @@ get Railway's template-update notification. `edge` is pinned to a Caddy release 
 
 ## Moving the published template to `edge`
 
-The published template (`lDR_SU`) predates `edge`. In the composer, in this order,
-then **Apply**:
-
-1. **Add New → Docker Image** `ghcr.io/kolebjak/railway-hive-edge:14.1.0`, name it
-   `edge`, settings and variables as in step 14 above (icon
-   `https://cdn.simpleicons.org/caddy`).
-2. `app`, `server` and `usage` → Settings → Networking: **remove the public
-   domain** (HTTP proxy). Keep the healthchecks.
-3. Change the reference variables: `server` `CDN_API_BASE_URL`,
-   `GRAPHQL_PUBLIC_ORIGIN`, `WEB_APP_URL`; `workflows` `WEB_APP_URL`; `app`
-   `APP_BASE_URL`, `GRAPHQL_PUBLIC_ORIGIN` to `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}`
-   and `app` `GRAPHQL_PUBLIC_ENDPOINT`, `GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT` to
-   `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}/graphql`.
-4. `server` → add `SUPERTOKENS_RATE_LIMIT_IP_HEADER_NAME` = `X-Real-IP`.
-5. Marketplace → Overview: replace the custom-domain paragraph with the text in
-   **Template page text**.
-6. Deploy into a scratch project and run the checks in **2. Publish**.
-
-Existing deployments are not changed by a template update; they keep working on
-custom domains. Gateways that report to the old `usage` domain must move to
-`https://<edge domain>/usage`.
+Done on 2026-11-18 for template `lDR_SU`: `edge` added (step 14), public domains
+removed from `app`, `server` and `usage`, all URL references repointed to
+`edge.RAILWAY_PUBLIC_DOMAIN`, `SUPERTOKENS_RATE_LIMIT_IP_HEADER_NAME` added on
+`server`, overview replaced. Existing deployments are not changed by a template
+update; they keep working on custom domains. Gateways that report to an old
+`usage` domain must move to `https://<edge domain>/usage`.
