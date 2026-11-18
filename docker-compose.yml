@@ -127,8 +127,6 @@ services:
   server:
     build: services/server
     networks: [stack]
-    ports:
-      - '${SERVER_HOST_PORT:-8082}:3001'
     depends_on:
       migrations: { condition: service_completed_successfully }
       s3: { condition: service_healthy }
@@ -164,11 +162,12 @@ services:
       ENCRYPTION_SECRET: ${HIVE_ENCRYPTION_SECRET}
       CDN_AUTH_PRIVATE_KEY: ${CDN_AUTH_PRIVATE_KEY}
       CDN_API: '1'
-      CDN_API_BASE_URL: ${HIVE_SERVER_URL}
-      GRAPHQL_PUBLIC_ORIGIN: ${HIVE_SERVER_URL}
-      WEB_APP_URL: ${HIVE_APP_URL}
+      CDN_API_BASE_URL: ${HIVE_URL}
+      GRAPHQL_PUBLIC_ORIGIN: ${HIVE_URL}
+      WEB_APP_URL: ${HIVE_URL}
       AUTH_ORGANIZATION_OIDC: '1'
       AUTH_REQUIRE_EMAIL_VERIFICATION: '0'
+      SUPERTOKENS_RATE_LIMIT_IP_HEADER_NAME: X-Real-IP
       SUPERTOKENS_REFRESH_TOKEN_KEY: ${SUPERTOKENS_REFRESH_TOKEN_KEY}
       SUPERTOKENS_ACCESS_TOKEN_KEY: ${SUPERTOKENS_ACCESS_TOKEN_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -217,7 +216,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       SCHEMA_ENDPOINT: http://schema:3002
-      WEB_APP_URL: ${HIVE_APP_URL}
+      WEB_APP_URL: ${HIVE_URL}
       ENCRYPTION_SECRET: ${HIVE_ENCRYPTION_SECRET}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-mock}
       EMAIL_FROM: ${EMAIL_FROM:-no-reply@example.com}
@@ -227,8 +226,6 @@ services:
   usage:
     image: ghcr.io/graphql-hive/usage:${HIVE_TAG:-14.1.0}
     networks: [stack]
-    ports:
-      - '${USAGE_HOST_PORT:-8081}:3006'
     depends_on:
       broker: { condition: service_healthy }
       migrations: { condition: service_completed_successfully }
@@ -277,19 +274,41 @@ services:
   app:
     image: ghcr.io/graphql-hive/app:${HIVE_TAG:-14.1.0}
     networks: [stack]
-    ports:
-      - '${APP_HOST_PORT:-8080}:3000'
     healthcheck: *hive-health
     environment:
       NODE_ENV: production
       PORT: 3000
-      APP_BASE_URL: ${HIVE_APP_URL}
-      GRAPHQL_PUBLIC_ENDPOINT: ${HIVE_SERVER_URL}/graphql
-      GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT: ${HIVE_SERVER_URL}/graphql
-      GRAPHQL_PUBLIC_ORIGIN: ${HIVE_SERVER_URL}
+      APP_BASE_URL: ${HIVE_URL}
+      GRAPHQL_PUBLIC_ENDPOINT: ${HIVE_URL}/graphql
+      GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT: ${HIVE_URL}/graphql
+      GRAPHQL_PUBLIC_ORIGIN: ${HIVE_URL}
       AUTH_REQUIRE_EMAIL_VERIFICATION: '0'
       AUTH_ORGANIZATION_OIDC: '1'
       LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  # The only public entry: console, API and usage reports on one domain.
+  # On Railway it is the service that owns the domain; app, server and usage
+  # stay private.
+  edge:
+    build: services/edge
+    networks: [stack]
+    ports:
+      - '${EDGE_HOST_PORT:-8080}:8080'
+    depends_on:
+      app: { condition: service_healthy }
+      server: { condition: service_healthy }
+      usage: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://localhost:8080/_health']
+      interval: 5s
+      timeout: 5s
+      retries: 6
+    environment:
+      PORT: 8080
+      APP_UPSTREAM: app:3000
+      SERVER_UPSTREAM: server:3001
+      USAGE_UPSTREAM: usage:3006
+      DISABLE_SIGNUP: ${DISABLE_SIGNUP:-0}
 
 volumes:
   db:

@@ -1,0 +1,30 @@
+{
+	admin off
+	auto_https off
+}
+
+:{$PORT:8080} {
+	handle /_health {
+		respond 200
+	}
+
+	@signup {
+		expression `"{$DISABLE_SIGNUP:0}" == "1"`
+		method POST
+		path /auth-api/signup
+	}
+	respond @signup 403
+
+	@usage path /usage /usage/*
+	handle @usage {
+		uri strip_prefix /usage
+		reverse_proxy {$USAGE_UPSTREAM}
+	}
+
+	@server path /graphql /graphql-public /auth-api/* /artifacts/* /scim/*
+	reverse_proxy @server {$SERVER_UPSTREAM} {
+		flush_interval -1
+	}
+
+	reverse_proxy {$APP_UPSTREAM}
+}

@@ -25,7 +25,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        service: [server, broker, s3, redis]
+        service: [server, broker, s3, redis, edge]
     steps:
       - uses: actions/checkout@v4
 

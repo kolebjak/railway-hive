@@ -24,9 +24,10 @@ composer** as listed here; that is what the template records.
 ## 1. Composer
 
 [railway.com/templates](https://railway.com/templates) → **New Template**. Add the
-13 services below, in this order (references resolve regardless, but each step only
+14 services below, in this order (references resolve regardless, but each step only
 references services already added). Restart policy: **Always** everywhere except
-`migrations` (**Never**). Public networking: only `app`, `server`, `usage`.
+`migrations` (**Never**). Public networking: only `edge`; `app`, `server` and
+`usage` are reached through it.
 
 Service icons (click the cube next to the service name, type a value, press
 Enter; the composer accepts a [devicons](https://devicons.railway.app) slug or
@@ -39,6 +40,7 @@ any image URL):
 | `redis` | `redis` |
 | `broker` | `https://cdn.simpleicons.org/apachekafka/white` |
 | `s3` | `aws` |
+| `edge` | `https://cdn.simpleicons.org/caddy` |
 | all Hive services | `https://raw.githubusercontent.com/graphql-hive/console/main/packages/web/app/public/just-logo.svg` |
 
 Secret shorthands used below:
@@ -158,7 +160,7 @@ The entrypoint advertises `${{RAILWAY_PRIVATE_DOMAIN}}` by itself; nothing to se
 | --- | --- |
 | Source | image `ghcr.io/kolebjak/railway-hive-server:14.1.0` |
 | Volume | `/keys` (holds the generated RS256 session key) |
-| Public networking | **HTTP, target port 3001** |
+| Public networking | none (reached through `edge`) |
 | Healthcheck | `/_health` |
 
 | Variable | Value |
@@ -170,9 +172,10 @@ The entrypoint advertises `${{RAILWAY_PRIVATE_DOMAIN}}` by itself; nothing to se
 | `SUPERTOKENS_REFRESH_TOKEN_KEY` | `1000:HEX128:HEX128` — literally `1000:${{secret(128, "abcdef0123456789")}}:${{secret(128, "abcdef0123456789")}}` |
 | `SUPERTOKENS_ACCESS_TOKEN_KEY` | leave **unset** — generated on first boot into `/keys` (see below) |
 | `CDN_API` | `1` |
-| `CDN_API_BASE_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
-| `GRAPHQL_PUBLIC_ORIGIN` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
-| `WEB_APP_URL` | `https://${{app.RAILWAY_PUBLIC_DOMAIN}}` (add `app` first or fill in after step 13) |
+| `CDN_API_BASE_URL` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}` (add `edge` first or fill in after step 14) |
+| `GRAPHQL_PUBLIC_ORIGIN` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}` |
+| `WEB_APP_URL` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}` |
+| `SUPERTOKENS_RATE_LIMIT_IP_HEADER_NAME` | `X-Real-IP` — Railway's edge sets it, Caddy passes it through; without it the auth rate limiter keys on Caddy's address, one bucket for everyone |
 | `AUTH_ORGANIZATION_OIDC` | `1` |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION` | `0` |
 | `POSTGRES_HOST` | `${{db.RAILWAY_PRIVATE_DOMAIN}}` |
@@ -252,7 +255,7 @@ redeploys, and still honours an explicit `SUPERTOKENS_ACCESS_TOKEN_KEY` if one i
 | `EMAIL_PROVIDER` | `mock` — mark optional; `smtp` / `postmark` need the vars in README |
 | `EMAIL_FROM` | `no-reply@example.com` — mark optional |
 | `ENCRYPTION_SECRET` | `${{server.ENCRYPTION_SECRET}}` |
-| `WEB_APP_URL` | `https://${{app.RAILWAY_PUBLIC_DOMAIN}}` |
+| `WEB_APP_URL` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}` |
 | `SCHEMA_ENDPOINT` | `http://${{schema.RAILWAY_PRIVATE_DOMAIN}}:3002` |
 | `POSTGRES_HOST` | `${{db.RAILWAY_PRIVATE_DOMAIN}}` |
 | `POSTGRES_PORT` | `5432` |
@@ -270,7 +273,7 @@ redeploys, and still honours an explicit `SUPERTOKENS_ACCESS_TOKEN_KEY` if one i
 | Setting | Value |
 | --- | --- |
 | Source | image `ghcr.io/graphql-hive/usage:14.1.0` |
-| Public networking | **HTTP, target port 3006** |
+| Public networking | none (reached through `edge` at `/usage`) |
 | Healthcheck | `/_health` |
 
 | Variable | Value |
@@ -321,66 +324,78 @@ redeploys, and still honours an explicit `SUPERTOKENS_ACCESS_TOKEN_KEY` if one i
 | Setting | Value |
 | --- | --- |
 | Source | image `ghcr.io/graphql-hive/app:14.1.0` |
-| Public networking | **HTTP, target port 3000** |
+| Public networking | none (reached through `edge`) |
 | Healthcheck | `/_health` |
 
 | Variable | Value |
 | --- | --- |
 | `PORT` | `3000` |
 | `NODE_ENV` | `production` |
-| `APP_BASE_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
-| `GRAPHQL_PUBLIC_ENDPOINT` | `https://${{server.RAILWAY_PUBLIC_DOMAIN}}/graphql` |
-| `GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT` | `https://${{server.RAILWAY_PUBLIC_DOMAIN}}/graphql` |
-| `GRAPHQL_PUBLIC_ORIGIN` | `https://${{server.RAILWAY_PUBLIC_DOMAIN}}` |
+| `APP_BASE_URL` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}` |
+| `GRAPHQL_PUBLIC_ENDPOINT` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}/graphql` |
+| `GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}/graphql` |
+| `GRAPHQL_PUBLIC_ORIGIN` | `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}` |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION` | `0` |
 | `AUTH_ORGANIZATION_OIDC` | `1` |
 | `LOG_LEVEL` | `info` |
 
-Now go back to `server` and `workflows` and confirm `WEB_APP_URL` resolves to `app`.
+### 14. `edge`
 
-The `RAILWAY_PUBLIC_DOMAIN` values above let the template deploy with zero inputs,
-but login does not work on them (see **Template page text** below). Deployers
-override the URL variables with custom domains as described in `README.md`
-→ *Custom domains (required)*.
+| Setting | Value |
+| --- | --- |
+| Source | image `ghcr.io/kolebjak/railway-hive-edge:14.1.0` |
+| Public networking | **HTTP, target port 8080** |
+| Healthcheck | `/_health` (answered by Caddy itself) |
+
+| Variable | Value |
+| --- | --- |
+| `PORT` | `8080` |
+| `APP_UPSTREAM` | `${{app.RAILWAY_PRIVATE_DOMAIN}}:3000` |
+| `SERVER_UPSTREAM` | `${{server.RAILWAY_PRIVATE_DOMAIN}}:3001` |
+| `USAGE_UPSTREAM` | `${{usage.RAILWAY_PRIVATE_DOMAIN}}:3006` |
+| `DISABLE_SIGNUP` | `0` — mark optional; description: `1 blocks email+password sign-up (403). Set after your first account exists.` |
+
+Now go back to `server` and `workflows` and confirm every `edge.RAILWAY_PUBLIC_DOMAIN`
+reference resolves. All public URLs point at `edge`: the SameSite=Lax session
+cookie is first-party, login works on the generated domain, and usage reports go
+to `https://<edge domain>/usage` (Caddy strips the prefix).
 
 ## Template page text
 
-Paste this at the top of the template **Overview** in the composer (Settings →
-Overview). Keep it first; it is the one thing every deployer must read:
+Paste this at the top of the template **Overview** (Marketplace tab), right under
+the H1:
 
 ```
-⚠️ Login needs custom domains. On the generated *.up.railway.app domains sign-up
-and sign-in succeed and the console immediately returns to the login page: Hive's
-server sets its session cookies SameSite=Lax and up.railway.app is a public suffix,
-so the console and the API count as different sites. After deploying, add custom
-domains under one domain you own to app, server and usage (e.g. hive.example.com,
-hive-api.example.com, hive-usage.example.com), set APP_BASE_URL,
-GRAPHQL_PUBLIC_ENDPOINT, GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT, GRAPHQL_PUBLIC_ORIGIN
-(app), GRAPHQL_PUBLIC_ORIGIN, CDN_API_BASE_URL, WEB_APP_URL (server) and
-WEB_APP_URL (workflows) to them, then redeploy server, workflows and app. Details:
-https://github.com/kolebjak/railway-hive#custom-domains-required
+> **After your first sign-up, set `DISABLE_SIGNUP=1` on the `edge` service** and
+> redeploy it. Hive has no sign-up switch and no instance owner: anyone who can
+> open the console can register and create an organization
+> (graphql-hive/console#8039). The switch returns 403 for email+password
+> registration; sign-in, password reset and social/OIDC login are unaffected.
+> Details: https://github.com/kolebjak/railway-hive#closing-sign-up
 ```
+
+Remove the earlier "Login needs custom domains" paragraph: with `edge` the console
+and the API share one origin and login works on `*.up.railway.app`.
 
 ## 2. Publish
 
 1. **Publish** the template. Deploy it once into a scratch project and check:
-   `migrations` ends as completed, `server` `/_health` is 200, the console loads,
-   and `usage` `/_health` is 200.
-2. On the generated domains, confirm the known failure: sign-up returns to the
-   login page. Then add custom domains and override the URL variables as in
-   `README.md` → *Custom domains (required)*, redeploy `server`, `workflows`, `app`,
-   and check sign-up in Safari or Firefox (third-party cookies blocked) **and** in
-   Chrome: the session must survive a reload and `myDefaultOrganization` must not
-   return `UNAUTHENTICATED`.
+   `migrations` ends as completed, `https://<edge domain>/_health` and
+   `/usage/_health` are 200, `/` shows the console and `/graphql` answers.
+2. On the generated `edge` domain, in Safari or Firefox **and** in Chrome: sign up,
+   reload, the session must survive (no `UNAUTHENTICATED` on
+   `myDefaultOrganization`). Set `DISABLE_SIGNUP=1` on `edge`, redeploy it: sign-up
+   must show an error, sign-in must still work.
 3. Deploy button in `README.md` points at `https://railway.com/deploy/lDR_SU` (template `lDR_SU`, composer id `157b289d-c13d-437b-99c2-484c84f603d7`).
 
 ## Start order on a fresh deploy
 
-Railway starts all 13 at once. `migrations` needs `db`, `clickhouse`, `redis`;
+Railway starts all 14 at once. `migrations` needs `db`, `clickhouse`, `redis`;
 `server`, `workflows`, `usage`, `usage-ingestor` need the migrations to have
 finished and crash until then. With restart policy **Always** they settle within a
-couple of minutes; the Hive services are the ones to watch. `app` is static and
-healthy immediately, but the UI only works once `server` is up.
+couple of minutes; the Hive services are the ones to watch. `edge` and `app` are
+healthy immediately, but the console only works once `server` is up (502 from
+`edge` until then).
 
 ## Upgrading the template
 
@@ -390,4 +405,29 @@ Compose file, wrapper Dockerfiles and composer images move together. For
 `docker-compose.yml`; diff upstream's `docker/docker-compose.community.yml` at the new
 tag against ours for new services or variables; `./test.sh`; push (images rebuild);
 edit the template's image tags in the composer; publish the new version. Users then
-get Railway's template-update notification.
+get Railway's template-update notification. `edge` is pinned to a Caddy release in
+`services/edge/Dockerfile`, independent of the Hive version.
+
+## Moving the published template to `edge`
+
+The published template (`lDR_SU`) predates `edge`. In the composer, in this order,
+then **Apply**:
+
+1. **Add New → Docker Image** `ghcr.io/kolebjak/railway-hive-edge:14.1.0`, name it
+   `edge`, settings and variables as in step 14 above (icon
+   `https://cdn.simpleicons.org/caddy`).
+2. `app`, `server` and `usage` → Settings → Networking: **remove the public
+   domain** (HTTP proxy). Keep the healthchecks.
+3. Change the reference variables: `server` `CDN_API_BASE_URL`,
+   `GRAPHQL_PUBLIC_ORIGIN`, `WEB_APP_URL`; `workflows` `WEB_APP_URL`; `app`
+   `APP_BASE_URL`, `GRAPHQL_PUBLIC_ORIGIN` to `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}`
+   and `app` `GRAPHQL_PUBLIC_ENDPOINT`, `GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT` to
+   `https://${{edge.RAILWAY_PUBLIC_DOMAIN}}/graphql`.
+4. `server` → add `SUPERTOKENS_RATE_LIMIT_IP_HEADER_NAME` = `X-Real-IP`.
+5. Marketplace → Overview: replace the custom-domain paragraph with the text in
+   **Template page text**.
+6. Deploy into a scratch project and run the checks in **2. Publish**.
+
+Existing deployments are not changed by a template update; they keep working on
+custom domains. Gateways that report to the old `usage` domain must move to
+`https://<edge domain>/usage`.
