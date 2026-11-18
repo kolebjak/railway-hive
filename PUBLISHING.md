@@ -338,12 +338,41 @@ redeploys, and still honours an explicit `SUPERTOKENS_ACCESS_TOKEN_KEY` if one i
 
 Now go back to `server` and `workflows` and confirm `WEB_APP_URL` resolves to `app`.
 
+The `RAILWAY_PUBLIC_DOMAIN` values above let the template deploy with zero inputs,
+but login does not work on them (see **Template page text** below). Deployers
+override the URL variables with custom domains as described in `README.md`
+→ *Custom domains (required)*.
+
+## Template page text
+
+Paste this at the top of the template **Overview** in the composer (Settings →
+Overview). Keep it first; it is the one thing every deployer must read:
+
+```
+⚠️ Login needs custom domains. On the generated *.up.railway.app domains sign-up
+and sign-in succeed and the console immediately returns to the login page: Hive's
+server sets its session cookies SameSite=Lax and up.railway.app is a public suffix,
+so the console and the API count as different sites. After deploying, add custom
+domains under one domain you own to app, server and usage (e.g. hive.example.com,
+hive-api.example.com, hive-usage.example.com), set APP_BASE_URL,
+GRAPHQL_PUBLIC_ENDPOINT, GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT, GRAPHQL_PUBLIC_ORIGIN
+(app), GRAPHQL_PUBLIC_ORIGIN, CDN_API_BASE_URL, WEB_APP_URL (server) and
+WEB_APP_URL (workflows) to them, then redeploy server, workflows and app. Details:
+https://github.com/kolebjak/railway-hive#custom-domains-required
+```
+
 ## 2. Publish
 
 1. **Publish** the template. Deploy it once into a scratch project and check:
    `migrations` ends as completed, `server` `/_health` is 200, the console loads,
-   sign-up works, and `usage` `/_health` is 200.
-2. Deploy button in `README.md` points at `https://railway.com/deploy/lDR_SU` (template `lDR_SU`, composer id `157b289d-c13d-437b-99c2-484c84f603d7`).
+   and `usage` `/_health` is 200.
+2. On the generated domains, confirm the known failure: sign-up returns to the
+   login page. Then add custom domains and override the URL variables as in
+   `README.md` → *Custom domains (required)*, redeploy `server`, `workflows`, `app`,
+   and check sign-up in Safari or Firefox (third-party cookies blocked) **and** in
+   Chrome: the session must survive a reload and `myDefaultOrganization` must not
+   return `UNAUTHENTICATED`.
+3. Deploy button in `README.md` points at `https://railway.com/deploy/lDR_SU` (template `lDR_SU`, composer id `157b289d-c13d-437b-99c2-484c84f603d7`).
 
 ## Start order on a fresh deploy
 

@@ -6,6 +6,11 @@ pinned to **hive@14.1.0**. One click, zero required inputs.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/lDR_SU)
 
+> **Login needs custom domains.** On the generated `*.up.railway.app` domains
+> sign-up and sign-in succeed and the console immediately drops back to the login
+> page. Deploy, then follow [Custom domains (required)](#custom-domains-required)
+> before the first sign-up.
+
 
 ## What you get
 
@@ -76,9 +81,60 @@ After deploy, three URLs:
 | Registry API + CDN | `https://<server domain>` | Hive CLI (`/graphql`), gateways (`/artifacts/v1/<target-id>`) |
 | Usage | `https://<usage domain>` | gateways and SDKs reporting usage |
 
+## Custom domains (required)
+
+**Symptom.** Sign-up or sign-in on `app-….up.railway.app` returns to the login page
+at once. The network tab shows `signin` → `graphql` → `signout`; the GraphQL
+response is `UNAUTHENTICATED`, `No access (reason: "Authorization token is missing")`
+on `myDefaultOrganization`.
+
+**Cause.** The console (`app`) authenticates against the API (`server`) and the
+session lives in cookies the server sets with `SameSite=Lax`
+([Hive 14.1.0, `supertokens-at-home.ts`](https://github.com/graphql-hive/console/blob/hive%4014.1.0/packages/services/server/src/supertokens-at-home.ts)).
+`up.railway.app` is on the
+[Public Suffix List](https://publicsuffix.org/list/public_suffix_list.dat), so
+`app-….up.railway.app` and `server-….up.railway.app` are different *sites* and the
+browser never attaches the cookie to the console's API calls. Every browser, not
+only those blocking third-party cookies. Hive 14.1.0 has no header-token mode and
+no setting for the cookie's `SameSite` or `Domain`, so the only fix is to put
+`app` and `server` on the same site.
+
+**Fix.** Three hostnames under one registrable domain you own (the shared parent
+must not itself be a public suffix):
+
+| Service | Example domain |
+| --- | --- |
+| `app` | `hive.example.com` |
+| `server` | `hive-api.example.com` |
+| `usage` | `hive-usage.example.com` |
+
+1. On each of the three services: **Settings → Networking → Custom Domain**, add the
+   domain, create the `CNAME` **and** `TXT` records Railway shows (both are
+   required). Railway docs:
+   [Working with domains](https://docs.railway.com/networking/domains/working-with-domains).
+2. Set these variables **by hand** to the custom domains. Railway documents
+   `RAILWAY_PUBLIC_DOMAIN` as the generated `….up.railway.app` host and does not say
+   it follows a custom domain, so do not rely on the template's reference values.
+
+   | Service | Variable | Value |
+   | --- | --- | --- |
+   | `server` | `GRAPHQL_PUBLIC_ORIGIN` | `https://hive-api.example.com` |
+   | `server` | `CDN_API_BASE_URL` | `https://hive-api.example.com` |
+   | `server` | `WEB_APP_URL` | `https://hive.example.com` |
+   | `workflows` | `WEB_APP_URL` | `https://hive.example.com` |
+   | `app` | `APP_BASE_URL` | `https://hive.example.com` |
+   | `app` | `GRAPHQL_PUBLIC_ENDPOINT` | `https://hive-api.example.com/graphql` |
+   | `app` | `GRAPHQL_PUBLIC_SUBSCRIPTION_ENDPOINT` | `https://hive-api.example.com/graphql` |
+   | `app` | `GRAPHQL_PUBLIC_ORIGIN` | `https://hive-api.example.com` |
+
+3. Redeploy `server`, `workflows` and `app`. Open `https://hive.example.com` and
+   sign up. Use the custom domains everywhere below; the generated domains keep
+   working for `/_health` but not for login.
+
 ### Using it from a project
 
-1. Open the console, sign up (the first account owns the instance), create an
+1. Open the console on its custom domain, sign up (the first account owns the
+   instance), create an
    **organization**, a **project** (type Single or Federation) and a **target** per
    environment (e.g. `staging`, `production`).
 2. Target → **Settings → Registry Access Tokens** → create a token with
